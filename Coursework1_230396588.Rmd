@@ -1,0 +1,176 @@
+---
+title: "MTH6139 Time Series"
+subtitle: "Coursework 1: Forecasting UK Annual GDP with Meta Prophet"
+author: "Saifullah Yaqoob"
+date: "March 2026"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: spacelab
+    highlight: tango
+---
+
+```{r, echo=FALSE}
+htmltools::img(src = knitr::image_uri("images/QMlogo.png"),
+               alt = 'logo',
+               style = 'position:absolute; top:0; right:0; padding:10px; width:20%;')
+```
+
+# Section 1: Introduction
+
+This project studies the evolution of United Kingdom Annual GDP over time and applies Meta Prophet to produce forecasts.
+
+GDP measures the total value of goods and services produced in a country. Understanding its long-run behaviour is in understanding how well an economy is doing.
+
+The aim is: to explore the trend in GDP, check whether the series is smooth or volatile, apply a Prophet model and generate a forecast.
+
+## 1.1 Data and Setup
+
+The data used in this report is annual UK GDP. The series is arranged in the format required by Prophet, with ds for the date column and y for the variable being forecast.
+
+```{r}
+library(WDI)
+library(dplyr)
+library(ggplot2)
+library(prophet)
+
+gdp_raw <- WDI(
+  country = "GB",
+  indicator = "NY.GDP.MKTP.CD",
+  start = 1960,
+  end = 2024
+)
+
+gdp_data <- gdp_raw %>%
+  select(year, NY.GDP.MKTP.CD) %>%
+  rename(y = NY.GDP.MKTP.CD) %>%
+  mutate(ds = as.Date(paste0(year, "-01-01"))) %>%
+  select(ds, y) %>%
+  arrange(ds) %>%
+  filter(!is.na(y))
+
+head(gdp_data)
+```
+
+## 1.2 Exploratory Analysis
+
+The first plot shows GDP on the original scale.
+
+```{r}
+ggplot(gdp_data, aes(x = ds, y = y)) +
+  geom_line() +
+  labs(
+    title = "UK GDP over Time",
+    x = "Year",
+    y = "GDP (current US$)"
+  )
+```
+
+The series shows a strong upward long-run trend. The increase is not linear on the original scale because the level of GDP becomes much larger in later years. The graph shows a strong upward trend in UK GDP over time.The series is fairly smooth overall, although there are some short-run fluctuations.Growth appears to accelerate in later years. This means the curve becomes steeper.Therefore, the pattern is not linear on the original scale.This suggests that GDP may grow proportionally rather than by a constant absolute amount.
+
+## 1.3 Log transformation
+
+A logarithmic transformation is useful because proportional growth is easier to interpret than absolute growth.
+
+```{r}
+gdp_data <- gdp_data %>%
+  mutate(y_log = log(y))
+
+ggplot(gdp_data, aes(x = ds, y = y_log)) +
+  geom_line() +
+  labs(
+    title = "Log UK GDP over Time",
+    x = "Year",
+    y = "log(GDP)"
+  )
+```
+
+After applying a logarithmic transformation, the series looks smoother and more stable.
+The trend now appears closer to a straight line.This indicates that GDP growth may be approximately exponential over time.Because the log series is smoother, it may be more suitable for forecasting.
+
+## 1.4 Linear Trend Check
+
+As a simple benchmark, I fit a linear regression on the log of GDP against time.
+
+```{r}
+gdp_data <- gdp_data %>%
+  mutate(time_index = 1:n())
+
+linear_model <- lm(y_log ~ time_index, data = gdp_data)
+summary(linear_model)
+```
+
+The regression confirms a positive relationship between time and log GDP.This suggests that GDP has grown steadily over the long run.The linear regression is not the final forecasting model.It is only used to understand the general trend in the data.
+
+# Section 2: Forecasting GDP Using Prophet
+
+Prophet is used here mainly as a trend forecasting tool.
+
+Since the data is annual, I switch off daily, weekly and yearly seasonality. For annual GDP, the main feature of interest is the trend rather than seasonal behaviour.
+
+```{r}
+gdp_prophet_log <- gdp_data %>%
+  select(ds, y = y_log)
+
+gdp_model_log <- prophet(
+  gdp_prophet_log,
+  yearly.seasonality = FALSE,
+  weekly.seasonality = FALSE,
+  daily.seasonality = FALSE
+)
+```
+
+I then generate a forecast for 10 years ahead.
+
+```{r}
+future_gdp <- make_future_dataframe(
+  gdp_model_log,
+  periods = 10,
+  freq = "year"
+)
+
+forecast_gdp <- predict(gdp_model_log, future_gdp)
+```
+
+## 2.1 Forecast Results
+
+```{r}
+plot(gdp_model_log, forecast_gdp)
+```
+
+The Prophet forecast continues the historical upward trend in GDP, which shows positive progress.The forecast line is smooth, showing that the model mainly captures long-run growth.The shaded region represents uncertainty.This region becomes wider in the future, meaning that long-term forecasts are less certain.
+## 2.2 Converting forecast back to GDP scale
+```{r}
+forecast_output <- forecast_gdp %>%
+  select(ds, yhat, yhat_lower, yhat_upper) %>%
+  mutate(
+    yhat = exp(yhat),
+    yhat_lower = exp(yhat_lower),
+    yhat_upper = exp(yhat_upper)
+  )
+
+tail(forecast_output, 12)
+```
+
+These values represent predicted GDP levels.
+
+# Section 3: Discussion
+
+The analysis shows that UK GDP has a strong positive long-run trend.
+
+The original series is not perfectly smooth because economic shocks can affect growth.
+However, the log transformation makes the trend more stable.
+
+Prophet provides a simple way to extend this trend into the future.
+The model assumes that historical growth patterns will continue.
+
+Limitations include are: annual data contains relatively few observations, structural economic changes are not explicitly modelled and uncertainty increases for longer forecast horizons
+
+# Section 4: Conclusion 
+
+This project explored UK GDP using time series methods and the Prophet forecasting tool.
+
+Key findings in the coursework:
+
+GDP shows a clear upward long-run trend, the log transformation produces a smoother series, Prophet generates a reasonable trend-based forecast, forecast uncertainty increases over time
